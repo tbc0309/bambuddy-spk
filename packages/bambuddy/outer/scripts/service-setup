@@ -1,0 +1,39 @@
+### Generic variables and functions
+### -------------------------------
+
+if [ -z "${SYNOPKG_PKGNAME}" ] || [ -z "${SYNOPKG_DSM_VERSION_MAJOR}" ]; then
+  echo "Error: Environment variables are not set." 1>&2;
+  echo "Please run me using synopkg instead. Example: \"synopkg start [packagename]\"" 1>&2;
+  exit 1
+fi
+
+USER="Bambuddy"
+EFF_USER="Bambuddy"
+
+# Service port
+SERVICE_PORT="8000"
+
+# start-stop-status script redirect stdout/stderr to LOG_FILE
+LOG_FILE="${SYNOPKG_PKGVAR}/${SYNOPKG_PKGNAME}.log"
+
+# Service command has to deliver its pid into PID_FILE
+PID_FILE="${SYNOPKG_PKGVAR}/${SYNOPKG_PKGNAME}.pid"
+
+
+### Package specific variables and functions
+### ----------------------------------------
+
+# 环境仅在服务进程内设置，不污染群晖安装器及系统命令。
+SERVICE_COMMAND="${SYNOPKG_PKGDEST}/bin/start-bambuddy"
+SVC_CWD="${SYNOPKG_PKGDEST}/app"
+SVC_BACKGROUND=y
+SVC_WRITE_PID=y
+
+# 数据、日志和缓存持久保存在套件 var 下，升级不覆盖。
+prepare_bambuddy_dirs() {
+    mkdir -p "${SYNOPKG_PKGVAR}/data" "${SYNOPKG_PKGVAR}/logs" \
+        "${SYNOPKG_PKGVAR}/home" "${SYNOPKG_PKGVAR}/cache/matplotlib"
+}
+service_postinst() { prepare_bambuddy_dirs; }
+service_postupgrade() { prepare_bambuddy_dirs; }
+service_prestart() { prepare_bambuddy_dirs; }

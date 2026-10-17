@@ -1,0 +1,7 @@
+.spksrc-cache/
+.build/
+dist/
+cross-wheels-*/
+__pycache__/
+*.pyc
+node_modules/

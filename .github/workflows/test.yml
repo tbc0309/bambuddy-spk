@@ -1,0 +1,21 @@
+name: Bambuddy｜打包脚本与模板检查
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m unittest discover -s tests -v
+      - name: 校验 Shell 语法
+        run: |
+          for script in scripts/*.sh packages/bambuddy/outer/scripts/* packages/bambuddy/payload/start-bambuddy; do
+            bash -n "$script"
+          done

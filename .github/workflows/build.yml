@@ -1,0 +1,180 @@
+name: Bambuddy｜群晖交叉编译与发布（主线）
+on:
+  # 首次私有测试期间暂不开启定时构建和发布，验证通过后再启用。
+  # schedule:
+  #   - cron: '37 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 上游版本，留空获取最新正式版
+        type: string
+      publish:
+        description: 编译成功后发布（首次测试建议关闭）
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: bambuddy-build
+  cancel-in-progress: false
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: 获取上游版本并检测已发布套件
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          version="${REQUESTED#v}"
+          [ -n "$version" ] || version="$(gh api repos/maziggy/bambuddy/releases/latest --jq '.tag_name|ltrimstr("v")')"
+          [[ "$version" =~ ^[0-9]+(\.[0-9]+){2,3}([ab][0-9]+)?$ ]] || exit 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && gh release view "bambuddy-v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'build=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: 固定源码提交及 Python 依赖
+        if: steps.version.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bash scripts/resolve.sh "$VERSION"
+      - uses: actions/upload-artifact@v5
+        if: steps.version.outputs.build == 'true'
+        with:
+          name: bambuddy-source
+          path: .build/
+          include-hidden-files: true
+          if-no-files-found: error
+  frontend:
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v6
+        with:
+          name: bambuddy-source
+          path: .build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 按上游锁文件构建前端
+        working-directory: .build/source/frontend
+        run: npm ci && npm run build
+      - uses: actions/upload-artifact@v5
+        with:
+          name: bambuddy-frontend
+          path: .build/source/static
+          if-no-files-found: error
+  cross:
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, tc: x64, dsm: '7.2'}
+          - {arch: armv8, tc: rtd1619b, dsm: '7.2'}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v6
+        with:
+          name: bambuddy-source
+          path: .build
+      - uses: actions/cache@v4
+        with:
+          path: .spksrc-cache
+          key: bambuddy-spksrc-${{ matrix.arch }}-${{ matrix.dsm }}-v1
+      - name: 使用群晖工具链编译缺失的原生 wheel
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TC: ${{ matrix.tc }}
+          DSM: ${{ matrix.dsm }}
+        run: bash scripts/cross_compile.sh "$TC" "$DSM" "$VERSION"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: bambuddy-wheels-${{ matrix.arch }}-${{ matrix.dsm }}
+          path: cross-wheels-${{ matrix.dsm }}/
+          if-no-files-found: error
+  build:
+    needs: [resolve, frontend, cross]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, armv8]
+        dsm: ['7.2']
+    runs-on: ${{ matrix.arch == 'armv8' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m pip install Pillow
+      - uses: actions/download-artifact@v6
+        with:
+          name: bambuddy-source
+          path: .build
+      - uses: actions/download-artifact@v6
+        with:
+          name: bambuddy-frontend
+          path: .build/frontend/static
+      - uses: actions/download-artifact@v6
+        with:
+          name: bambuddy-wheels-${{ matrix.arch }}-${{ matrix.dsm }}
+          path: cross-wheels-${{ matrix.dsm }}
+      - name: 打包独立 Python 运行环境并审计完整 SPK
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          DSM: ${{ matrix.dsm }}
+        run: bash scripts/build.sh "$VERSION" "$ARCH" "$DSM"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: bambuddy-spk-${{ matrix.arch }}-${{ matrix.dsm }}
+          path: dist/**/*.spk*
+          if-no-files-found: error
+  release:
+    needs: [resolve, build]
+    if: github.event_name == 'schedule' || inputs.publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: bambuddy-spk-*
+          path: assets
+          merge-multiple: true
+      - name: 发布 DSM 7.2 两个架构的套件
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          mapfile -t files < <(find assets -type f -name '*.spk')
+          [ "${#files[@]}" -eq 2 ] || exit 1
+          tag="bambuddy-v${VERSION}"
+          if [[ "$VERSION" =~ [ab] ]]; then
+            options=(--prerelease)
+          else
+            options=(--latest)
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+            if [[ ! "$VERSION" =~ [ab] ]]; then
+              gh release edit "$tag" --prerelease=false --latest --repo "$GITHUB_REPOSITORY"
+            fi
+          else
+            gh release create "$tag" "${files[@]}" "${options[@]}" --repo "$GITHUB_REPOSITORY" \
+              --title "Bambuddy ${VERSION} for DSM 7.2" \
+              --notes '仅支持 DSM 7.2，x86_64/armv8。默认使用 Bambuddy 普通套件账户运行。'
+          fi

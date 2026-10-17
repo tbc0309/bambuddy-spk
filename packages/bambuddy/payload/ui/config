@@ -1,0 +1,9 @@
+{
+  ".url": {
+    "SYNO.SDS.Bambuddy.Application": {
+      "title": "Bambuddy", "desc": "Bambuddy",
+      "icon": "images/icon_{0}.png", "type": "url",
+      "protocol": "http", "port": "8000", "allUsers": false
+    }
+  }
+}

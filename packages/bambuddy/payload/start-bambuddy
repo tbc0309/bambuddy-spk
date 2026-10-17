@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+umask 077
+target="/var/packages/Bambuddy/target"
+var="/var/packages/Bambuddy/var"
+export PYTHONHOME="$target"
+export PYTHONPATH="$target/app"
+export PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1
+export DATA_DIR="$var/data" LOG_DIR="$var/logs" HOME="$var/home"
+export MPLCONFIGDIR="$var/cache/matplotlib" XDG_CACHE_HOME="$var/cache"
+export USER=Bambuddy LOGNAME=Bambuddy BAMBUDDY_SYNOLOGY=1
+export PATH="$target/bin:/var/packages/ffmpeg8/target/bin:/var/packages/Tailscale/target/bin:/usr/local/bin:/usr/bin:/bin"
+cd "$target/app"
+exec "$target/bin/python3.14" -m supervisor.supervisord -n -c "$target/supervisord.conf"

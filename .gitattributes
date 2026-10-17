@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.sh text eol=lf
+packages/bambuddy/outer/scripts/* text eol=lf
+*.png binary

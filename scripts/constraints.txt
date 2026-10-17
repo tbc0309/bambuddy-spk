@@ -1,0 +1,5 @@
+# 沿用已验证的 DSM 科学计算基础版本，满足上游依赖范围。
+numpy==2.4.2
+pillow==12.2.0
+# 5.x 的 Linux wheel 提升了 glibc 基线，4.11 保留 DSM 7.1 兼容性。
+opencv-python-headless==4.11.0.86
