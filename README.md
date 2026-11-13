@@ -24,7 +24,7 @@ Tailscale 集成需要用户自行安装并配置 Tailscale；OrcaSlicer/Bambu S
 
 ## 构建与更新
 
-- 主线支持每 6 小时检查上游正式 Release，也支持手动指定版本；当前 schedule 保持关闭。
+- 主线每 6 小时检查上游正式 Release，只在对应版本尚未发布时构建，双架构均通过构建和独立审计后自动发布；也支持手动指定版本。
 - 固定上游源码提交，前端使用上游 npm 锁文件；Python 依赖按 DSM 基线解析后固定在构建产物中。
 - 仅支持 DSM 7.2。使用 SynoCommunity spksrc 和群晖工具链交叉编译不兼容的原生 wheel；在 manylinux 2.28 环境组装独立 Python 3.14 解释器及运行库。
 - 保留上游运行依赖，不安装 pytest/ruff 等开发依赖。NumPy、Pillow、OpenCV 使用满足上游范围的 DSM 兼容版本，见 `scripts/constraints.txt`。

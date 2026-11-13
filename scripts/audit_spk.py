@@ -14,7 +14,7 @@ class DigestReader:
     def read(self,size=-1):
         data=self.stream.read(size); self.digest.update(data); return data
 
-def audit(source,expected_sha256=None,expected_beta=None):
+def audit(source,expected_sha256=None,expected_beta=None,expected_version='1.2.5.7'):
     arch='armv8' if '_armv8-' in source.name else 'x86_64'
     if expected_sha256 is None:
         expected_sha256=json.loads(source.with_name(source.name+'.json').read_text(encoding='utf-8'))['sha256']
@@ -23,7 +23,7 @@ def audit(source,expected_sha256=None,expected_beta=None):
     with tarfile.open(source,'r:') as outer:
         info=outer.extractfile('INFO').read()
         fields=dict(re.findall(r'^([a-z_]+)="(.*)"$',info.decode('utf-8'),re.M))
-        assert fields['version']=='1.2.5.7'
+        assert fields['version']==expected_version
         if expected_beta is not None:
             assert fields['beta']==expected_beta
             assert fields['description'].endswith('privilege file.)')
@@ -66,7 +66,9 @@ def audit(source,expected_sha256=None,expected_beta=None):
         return report
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('directory',type=Path); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('directory',type=Path)
+    parser.add_argument('--version',required=True); parser.add_argument('--beta',choices=['yes','no']); args=parser.parse_args()
     files=sorted(args.directory.rglob('*.spk')); assert len(files)==2
-    reports=[audit(source) for source in files]
+    reports=[audit(source,expected_version=args.version,expected_beta=args.beta) for source in files]
+    assert {report['arch'] for report in reports}==set(MODELS)
     (args.directory/'独立审计报告.json').write_text(json.dumps(reports,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

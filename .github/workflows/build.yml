@@ -1,15 +1,14 @@
 name: Bambuddy｜群晖交叉编译与发布（主线）
 on:
-  # 首次私有测试期间暂不开启定时构建和发布，验证通过后再启用。
-  # schedule:
-  #   - cron: '37 */6 * * *'
+  schedule:
+    - cron: '37 */6 * * *'
   workflow_dispatch:
     inputs:
       version:
         description: 上游版本，留空获取最新正式版
         type: string
       publish:
-        description: 编译成功后发布（首次测试建议关闭）
+        description: 编译和审计成功后发布（默认只生成构建附件）
         type: boolean
         default: false
 permissions:
@@ -145,11 +144,12 @@ jobs:
           if-no-files-found: error
   release:
     needs: [resolve, build]
-    if: github.event_name == 'schedule' || inputs.publish
+    if: needs.resolve.outputs.build == 'true' && (github.event_name == 'schedule' || inputs.publish)
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v6
         with:
           pattern: bambuddy-spk-*
@@ -165,16 +165,19 @@ jobs:
           tag="bambuddy-v${VERSION}"
           if [[ "$VERSION" =~ [ab] ]]; then
             options=(--prerelease)
+            beta=yes
           else
             options=(--latest)
+            beta=no
           fi
+          python3 scripts/audit_spk.py assets --version "$VERSION" --beta "$beta"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
             if [[ ! "$VERSION" =~ [ab] ]]; then
               gh release edit "$tag" --prerelease=false --latest --repo "$GITHUB_REPOSITORY"
             fi
           else
-            gh release create "$tag" "${files[@]}" "${options[@]}" --repo "$GITHUB_REPOSITORY" \
+            gh release create "$tag" "${files[@]}" "${options[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "Bambuddy ${VERSION} for DSM 7.2" \
               --notes '仅支持 DSM 7.2，x86_64/armv8。默认使用 Bambuddy 普通套件账户运行。'
           fi
