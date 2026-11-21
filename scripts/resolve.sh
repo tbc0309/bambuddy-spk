@@ -3,7 +3,10 @@ set -euo pipefail
 version="${1:?version required}"
 [[ "$version" =~ ^[0-9]+(\.[0-9]+){2,3}([ab][0-9]+)?$ ]] || { echo 'Invalid upstream version'; exit 1; }
 mkdir -p .build/source
-commit="$(gh api "repos/maziggy/bambuddy/commits/v${version}" --jq .sha)"
+if ! commit="$(gh api "repos/maziggy/bambuddy/commits/v${version}" --jq .sha 2>/dev/null)"; then
+  # 上游个别正式版使用 v.数字 标签，按真实标签固定源码提交。
+  commit="$(gh api "repos/maziggy/bambuddy/commits/v.${version}" --jq .sha)"
+fi
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || exit 1
 curl -fL --retry 4 "https://codeload.github.com/maziggy/bambuddy/tar.gz/${commit}" -o .build/upstream.tar.gz
 tar -xzf .build/upstream.tar.gz -C .build/source --strip-components=1
